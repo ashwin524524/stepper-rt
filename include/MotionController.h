@@ -72,6 +72,31 @@ public:
     }
   }
 
+  // Enqueue a straight with boundary velocities (mm/s)
+  bool planStraight(float dist_mm, float time_s, float v0_mm_s, float v1_mm_s) {
+    MotionCmd c{};
+    c.type = MotionType::Straight;
+    c.value = dist_mm;
+    c.dx_mm = 0; c.dy_mm = 0;
+    c.time_s = time_s;
+    c.v0_mm_s = v0_mm_s;
+    c.v1_mm_s = v1_mm_s;
+    return q_.push(c);
+  }
+
+  // Enqueue an arc (dx,dy) with boundary CENTER velocities (mm/s)
+  bool planArc(float dx_mm, float dy_mm, float time_s, float v0_center_mm_s, float v1_center_mm_s) {
+    MotionCmd c{};
+    c.type = MotionType::Arc;
+    c.value = 0;
+    c.dx_mm = dx_mm;
+    c.dy_mm = dy_mm;
+    c.time_s = time_s;
+    c.v0_mm_s = v0_center_mm_s;
+    c.v1_mm_s = v1_center_mm_s;
+    return q_.push(c);
+  }
+
   bool isBusy() const { return active_ || (q_.size() > 0); }
 
 private:
@@ -84,81 +109,84 @@ private:
 
 
   bool startNext_() {
-  MotionCmd cmd;
-  if (!q_.pop(cmd)) return false;
+    MotionCmd cmd;
+    if (!q_.pop(cmd)) return false;
 
-  float l_mm = 0.0f, r_mm = 0.0f;
+    float l_mm = 0.0f, r_mm = 0.0f;
+    float l_v0 = 0.0f, r_v0 = 0.0f;
+    float l_v1 = 0.0f, r_v1 = 0.0f;
 
-  if (cmd.type == MotionType::Straight) {
-    l_mm = cmd.value;
-    r_mm = cmd.value;
+    if (cmd.type == MotionType::Straight) {
+      l_mm = cmd.value;
+      r_mm = cmd.value;
+      l_v0 = cmd.v0_mm_s; r_v0 = cmd.v0_mm_s;
+      l_v1 = cmd.v1_mm_s; r_v1 = cmd.v1_mm_s;
 
-  } else if (cmd.type == MotionType::Turn) {
-    const float angRad = degToRad(cmd.value);
-    const float s_mm = angRad * (WHEELBASE_MM * 0.5f); // nominal wheel arc length
+    } else if (cmd.type == MotionType::TurnInPlace) {
+      // In-place turns typically stitch with v0=v1=0, but we support nonzero wheel speed if you want.
+      const float angRad = degToRad(cmd.value);
+      const float s_mm = angRad * (WHEELBASE_MM * 0.5f);
+      l_mm = -s_mm;
+      r_mm = +s_mm;
 
-    // Nominal steps per wheel (magnitude)
-    float s_steps_nom = fabsf(mmToSteps(s_mm));
+      // Interpret cmd.v0/v1 as WHEEL surface speed magnitude (mm/s)
+      float sgn = (cmd.value >= 0.0f) ? 1.0f : -1.0f;
+      l_v0 = -sgn * cmd.v0_mm_s;  r_v0 = +sgn * cmd.v0_mm_s;
+      l_v1 = -sgn * cmd.v1_mm_s;  r_v1 = +sgn * cmd.v1_mm_s;
 
-    // Add calibration: scaled by angle/90
-    float scale = fabsf(cmd.value) / 90.0f;
-    float bias = (float)TURN90_BIAS_STEPS * scale;
-
-    // Clamp bias
-    if (bias > (float)TURN_BIAS_MAX_STEPS) bias = (float)TURN_BIAS_MAX_STEPS;
-
-    float s_steps = s_steps_nom + bias;
-
-    // Convert back to mm so the rest of the pipeline stays unchanged
-    float s_mm_cal = s_steps / mmToSteps(1.0f); // mm per step inversion
-
-    // Apply sign (left negative, right positive for +angle)
-    const float sign = (cmd.value >= 0.0f) ? 1.0f : -1.0f;
-    l_mm = -sign * s_mm_cal;
-    r_mm = +sign * s_mm_cal;
-
-  } else if (cmd.type == MotionType::Arc) {
-    if (!arcToWheelDists_(cmd.dx_mm, cmd.dy_mm, l_mm, r_mm)) {
-      // fallback: if arc solve fails, treat as straight dx
-      l_mm = cmd.dx_mm;
-      r_mm = cmd.dx_mm;
+    } else { // Arc
+      float kL=1.0f, kR=1.0f; // wheel speed scaling vs center speed
+      if (!arcToWheelDistsAndScales_(cmd.dx_mm, cmd.dy_mm, l_mm, r_mm, kL, kR)) {
+        // fallback: straight dx
+        l_mm = cmd.dx_mm; r_mm = cmd.dx_mm;
+        kL = kR = 1.0f;
+      }
+      // Boundary center velocities scaled to wheels
+      l_v0 = kL * cmd.v0_mm_s;  r_v0 = kR * cmd.v0_mm_s;
+      l_v1 = kL * cmd.v1_mm_s;  r_v1 = kR * cmd.v1_mm_s;
     }
-  }
 
-  const float l_steps = mmToSteps(l_mm);
-  const float r_steps = mmToSteps(r_mm);
+    // Convert to steps domain
+    const float l_steps = mmToSteps(l_mm);
+    const float r_steps = mmToSteps(r_mm);
 
-  lProf_.plan(l_steps, cmd.time_s, maxVelSteps_, maxAccelSteps_);
-  rProf_.plan(r_steps, cmd.time_s, maxVelSteps_, maxAccelSteps_);
+    const float l_v0_steps = mmToSteps(l_v0);
+    const float r_v0_steps = mmToSteps(r_v0);
+    const float l_v1_steps = mmToSteps(l_v1);
+    const float r_v1_steps = mmToSteps(r_v1);
 
-  segDurationS_ = fmaxf(lProf_.duration(), rProf_.duration());
-  segStartUs_   = micros();
+    lProf_.plan(l_steps, cmd.time_s, l_v0_steps, l_v1_steps, maxVelSteps_, maxAccelSteps_);
+    rProf_.plan(r_steps, cmd.time_s, r_v0_steps, r_v1_steps, maxVelSteps_, maxAccelSteps_);
 
-  lSentSteps_ = 0;
-  rSentSteps_ = 0;
+    segDurationS_ = fmaxf(lProf_.duration(), rProf_.duration());
+    segStartUs_   = micros();
 
-  active_ = true;
-  return true;
-}
-static bool arcToWheelDists_(float dx, float dy, float& l_mm, float& r_mm) {
-  const float W = WHEELBASE_MM;
+    lSentSteps_ = 0;
+    rSentSteps_ = 0;
 
-  if (fabsf(dx) < 1e-6f && fabsf(dy) < 1e-6f) {
-    l_mm = 0.0f; r_mm = 0.0f;
-    return false;
-  }
-  if (fabsf(dy) < 1e-6f) {
-    l_mm = dx; r_mm = dx;
+    active_ = true;
     return true;
   }
 
-  const float R = (dx*dx + dy*dy) / (2.0f * dy);
-  const float theta = atan2f(dx, (R - dy));
+  static bool arcToWheelDists_(float dx, float dy, float& l_mm, float& r_mm) {
+    const float W = WHEELBASE_MM;
 
-  l_mm = (R - W*0.5f) * theta;
-  r_mm = (R + W*0.5f) * theta;
-  return true;
-}
+    if (fabsf(dx) < 1e-6f && fabsf(dy) < 1e-6f) {
+      l_mm = 0.0f; r_mm = 0.0f;
+      return false;
+    }
+    if (fabsf(dy) < 1e-6f) {
+      l_mm = dx; r_mm = dx;
+      return true;
+    }
+
+    const float R = (dx*dx + dy*dy) / (2.0f * dy);
+    const float theta = atan2f(dx, (R - dy));
+
+    l_mm = (R - W*0.5f) * theta;
+    r_mm = (R + W*0.5f) * theta;
+    return true;
+  }
 
   static void runAxisTo_(StepperDriver& drv, float desiredPosSteps, int32_t& sentSteps) {
     // desiredPosSteps is float; sentSteps is the integer number of steps already emitted.
@@ -173,6 +201,49 @@ static bool arcToWheelDists_(float dx, float dy, float& l_mm, float& r_mm) {
       drv.step(-1);
       sentSteps--;
     }
+  }
+
+  // Returns wheel distances (mm) and wheel speed scale factors kL,kR such that:
+// vL = kL * vCenter, vR = kR * vCenter
+  static bool arcToWheelDistsAndScales_(float dx, float dy,
+                                      float& l_mm, float& r_mm,
+                                      float& kL, float& kR)
+  {
+    const float W = WHEELBASE_MM;
+
+    if (fabsf(dx) < 1e-6f && fabsf(dy) < 1e-6f) {
+      l_mm = r_mm = 0.0f;
+      kL = kR = 1.0f;
+      return false;
+    }
+
+    if (fabsf(dy) < 1e-6f) {
+      // straight
+      l_mm = dx; r_mm = dx;
+      kL = kR = 1.0f;
+      return true;
+    }
+
+    // Radius R and sweep theta
+    const float R = (dx*dx + dy*dy) / (2.0f * dy);
+    const float theta = atan2f(dx, (R - dy)); // radians
+
+    // Center arc length
+    const float Lc = R * theta;
+
+    // Wheel lengths
+    l_mm = (R - W*0.5f) * theta;
+    r_mm = (R + W*0.5f) * theta;
+
+    // Speed scale factors vs center speed (avoid divide by zero if R tiny)
+    const float Rabs = (fabsf(R) < 1e-6f) ? (R >= 0 ? 1e-6f : -1e-6f) : R;
+    kL = (R - W*0.5f) / Rabs;
+    kR = (R + W*0.5f) / Rabs;
+
+    // Keep direction consistent with Lc sign. If center arc length is negative (reverse),
+    // kL/kR should not flip sign (velocity sign comes from vCenter).
+    (void)Lc;
+    return true;
   }
 
   StepperDriver& L_;

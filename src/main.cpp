@@ -23,7 +23,7 @@ static inline MotionCmd StraightCmd(float dist_mm, float t) {
   return {MotionType::Straight, dist_mm, 0, 0, t};
 }
 static inline MotionCmd TurnCmd(float deg, float t) {
-  return {MotionType::Turn, deg, 0, 0, t};
+  return {MotionType::TurnInPlace, deg, 0, 0, t};
 }
 static inline MotionCmd ArcCmd(float dx, float dy, float t) {
   return {MotionType::Arc, 0, dx, dy, t};
@@ -46,18 +46,17 @@ void right90(){
 
 // ================= ROUTINE =================
 static void loadRoutine() {
-  mq.clear();
+ // Start from rest -> accelerate while going straight
+  motion.planStraight(800.0f, 2.5f, 0.0f, 250.0f);
 
-  mq.clear();
+  // Stitch into a left arc without decel: end v of straight = start v of arc
+  motion.planArc(400.0f, 200.0f, 1.6f, 250.0f, 250.0f);
 
-  mq.push(StraightCmd(600.0f, 2.5f));
-  mq.push(TurnCmd(90.0f, 1.2f));
-  mq.push(StraightCmd(300.0f, 1.5f));
+  // Stitch to another straight, maybe decel a bit
+  motion.planStraight(600.0f, 2.0f, 250.0f, 100.0f);
 
-  // Optional smooth arc segment (forward+left)
-  mq.push(ArcCmd(250.0f, 250.0f, 3.0f));
-
-  mq.push(TurnCmd(-90.0f, 1.2f));
+  // End at rest
+  motion.planStraight(200.0f, 1.0f, 100.0f, 0.0f);
 
 }
 
