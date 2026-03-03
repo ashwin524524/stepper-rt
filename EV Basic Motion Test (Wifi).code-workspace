@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"name": "EV Basic Motion Test (Wifi)",
+			"path": "../EV Basic Motion Test (Wifi)"
+		},
+		{
+			"name": "Takuji Stepper RT",
+			"path": "."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"memory": "cpp",
+			"functional": "cpp",
+			"type_traits": "cpp"
+		}
+	}
+}
