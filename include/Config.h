@@ -51,6 +51,12 @@ static constexpr float TURN_CORR_MAX_STEPS = 200.0f;
 static constexpr uint16_t GYRO_BIAS_SAMPLES = 200;   // ~1-2 seconds worth
 static constexpr uint16_t GYRO_BIAS_DELAY_MS = 5;    // sample spacing
 
+// =================== TURN CALIBRATION ===================
+// Adds (angle_deg/90) * TURN90_BIAS_STEPS to EACH wheel's magnitude during TurnInPlace.
+// Positive -> turns more; Negative -> turns less.
+static constexpr int32_t TURN90_BIAS_STEPS = 0;   // <-- tune this (+/-)
+static constexpr int32_t TURN_BIAS_MAX_STEPS = 800; // safety clamp
+
 
 // =================== UTILS ===================
 inline float mmToSteps(float mm) {

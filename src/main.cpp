@@ -48,6 +48,17 @@ void right90(){
 static void loadRoutine() {
   mq.clear();
 
+  mq.clear();
+
+  mq.push(StraightCmd(600.0f, 2.5f));
+  mq.push(TurnCmd(90.0f, 1.2f));
+  mq.push(StraightCmd(300.0f, 1.5f));
+
+  // Optional smooth arc segment (forward+left)
+  mq.push(ArcCmd(250.0f, 250.0f, 3.0f));
+
+  mq.push(TurnCmd(-90.0f, 1.2f));
+
 }
 
 

@@ -95,9 +95,27 @@ private:
 
   } else if (cmd.type == MotionType::Turn) {
     const float angRad = degToRad(cmd.value);
-    const float s = angRad * (WHEELBASE_MM * 0.5f); // each wheel arc length
-    l_mm = -s;
-    r_mm = +s;
+    const float s_mm = angRad * (WHEELBASE_MM * 0.5f); // nominal wheel arc length
+
+    // Nominal steps per wheel (magnitude)
+    float s_steps_nom = fabsf(mmToSteps(s_mm));
+
+    // Add calibration: scaled by angle/90
+    float scale = fabsf(cmd.value) / 90.0f;
+    float bias = (float)TURN90_BIAS_STEPS * scale;
+
+    // Clamp bias
+    if (bias > (float)TURN_BIAS_MAX_STEPS) bias = (float)TURN_BIAS_MAX_STEPS;
+
+    float s_steps = s_steps_nom + bias;
+
+    // Convert back to mm so the rest of the pipeline stays unchanged
+    float s_mm_cal = s_steps / mmToSteps(1.0f); // mm per step inversion
+
+    // Apply sign (left negative, right positive for +angle)
+    const float sign = (cmd.value >= 0.0f) ? 1.0f : -1.0f;
+    l_mm = -sign * s_mm_cal;
+    r_mm = +sign * s_mm_cal;
 
   } else if (cmd.type == MotionType::Arc) {
     if (!arcToWheelDists_(cmd.dx_mm, cmd.dy_mm, l_mm, r_mm)) {
