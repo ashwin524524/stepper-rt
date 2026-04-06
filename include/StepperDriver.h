@@ -16,20 +16,35 @@ public:
 
     if (enPin_ != 255) {
       pinMode(enPin_, OUTPUT);
-      // Most stepper drivers: LOW = enable. Adjust if needed.
-      digitalWrite(enPin_, LOW);
+      disable();   // start disabled
     }
   }
 
+  inline void enable() {
+    if (enPin_ != 255) {
+      digitalWrite(enPin_, LOW);   // LOW = enabled
+      enabled_ = true;
+    }
+  }
+
+  inline void disable() {
+    if (enPin_ != 255) {
+      digitalWrite(enPin_, HIGH);  // HIGH = disabled
+      enabled_ = false;
+    }
+  }
+
+  inline bool isEnabled() const {
+    return enabled_;
+  }
+
   void initMicrosteps(){
-    //pinMode(MICROSTEP0L, OUTPUT);
-    pinMode(MICROSTEP1L, OUTPUT);
+    pinMode(MICROSTEP1, OUTPUT);
+    pinMode(MICROSTEP2, OUTPUT);
 
-    //pinMode(MICROSTEP0R, OUTPUT);
-    pinMode(MICROSTEP1R, OUTPUT);
 
-    digitalWrite(MICROSTEP1L, LOW);
-    digitalWrite(MICROSTEP1R, LOW);
+    digitalWrite(MICROSTEP1, LOW);
+    digitalWrite(MICROSTEP2, HIGH);
   }
 
   // Emit exactly one step in the given direction (+1 or -1)
@@ -39,11 +54,12 @@ public:
 
     // Short pulse; most drivers need >1us high time
     digitalWrite(stepPin_, HIGH);
-    delayMicroseconds(2);
+    delayMicroseconds(4);
     digitalWrite(stepPin_, LOW);
   }
 
 private:
   uint8_t stepPin_, dirPin_, enPin_;
   bool invertDir_ = false;
+  bool enabled_ = false;
 };

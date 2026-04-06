@@ -4,7 +4,7 @@
 
 enum class MotionType : uint8_t {
   Straight,     // value = distance_mm
-  Turn,  // value = angle_deg
+  TurnInPlace,  // value = angle_deg
   Arc           // dx_mm, dy_mm
 };
 

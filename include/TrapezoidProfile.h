@@ -2,135 +2,175 @@
 #include <Arduino.h>
 #include <math.h>
 
-// Time-based symmetric accel/cruise/decel profile from s=0 to s=distance (steps)
-// Always returns a feasible profile if T >= Tmin; otherwise we clamp to Tmin.
+// Time-based accel/cruise/decel profile with specified start and end velocity.
+// Works in 1D "steps" domain.
+// If an exact solution within limits can't be found, it will clamp gracefully.
 class TrapezoidProfile {
 public:
-  // distanceSteps can be negative; profile preserves sign.
-  // vmaxStepsPerS, amaxStepsPerS2 are positive limits.
+  // distanceSteps can be negative. v0/v1 can be negative (consistent direction).
+  // vmaxStepsPerS and amaxStepsPerS2 are positive limits.
   void plan(float distanceSteps, float totalTimeS,
+            float v0StepsPerS, float v1StepsPerS,
             float vmaxStepsPerS, float amaxStepsPerS2)
   {
-    sign_ = (distanceSteps >= 0.0f) ? 1.0f : -1.0f;
-    D_ = fabsf(distanceSteps);
-    T_ = (totalTimeS <= 0.0f) ? 0.001f : totalTimeS;
+    // Handle sign by flipping to positive direction
+    float sign = (distanceSteps >= 0.0f) ? 1.0f : -1.0f;
+
+    D_  = fabsf(distanceSteps);
+    T_  = fmaxf(1e-4f, totalTimeS);
+
+    v0_ = sign * v0StepsPerS;
+    v1_ = sign * v1StepsPerS;
 
     vmax_ = fmaxf(1e-6f, vmaxStepsPerS);
     amax_ = fmaxf(1e-6f, amaxStepsPerS2);
 
-    // Minimal time with limits
-    const float dTri = (vmax_ * vmax_) / amax_;
-    float Tmin;
-    if (D_ <= dTri) {
-      Tmin = 2.0f * sqrtf(D_ / amax_);
+    // Clamp start/end speeds to vmax (same direction as motion)
+    v0_ = clampAbs_(v0_, vmax_);
+    v1_ = clampAbs_(v1_, vmax_);
+
+    // If distance is tiny, just interpolate with no motion
+    if (D_ < 1e-6f) {
+      a_ = 0.0f; vPeak_ = 0.0f; ta_=tc_=td_=0.0f;
+      sA_ = sB_ = 0.0f;
+      sign_ = sign;
+      return;
+    }
+
+    // We search for a feasible accel (<=amax) that yields a trapezoid meeting D,T,v0,v1.
+    // Use highest feasible accel for responsiveness.
+    float bestA = 0.0f;
+    float bestV = 0.0f;
+    float bestTa=0.0f, bestTc=0.0f, bestTd=0.0f;
+    bool found = false;
+
+    auto tryAccel = [&](float a)->bool {
+      // Quadratic solution for vPeak given accel a and time T:
+      // v^2 - (v0+v1+aT)*v + (v0^2+v1^2)/2 + aD = 0
+      float B = (v0_ + v1_ + a*T_);
+      float C = 0.5f*(v0_*v0_ + v1_*v1_) + a*D_;
+      float disc = B*B - 4.0f*C;
+      if (disc < 0.0f) return false;
+
+      float v = 0.5f * (B - sqrtf(disc)); // choose smaller root
+      if (v < fmaxf(v0_, v1_) - 1e-4f) return false;
+      if (v > vmax_ + 1e-4f) return false;
+
+      float ta = (v - v0_) / a;
+      float td = (v - v1_) / a;
+      float tc = T_ - ta - td;
+
+      if (ta < -1e-4f || td < -1e-4f || tc < -1e-4f) return false;
+
+      // accept (tiny negative due to float)
+      ta = fmaxf(0.0f, ta);
+      td = fmaxf(0.0f, td);
+      tc = fmaxf(0.0f, tc);
+
+      bestA = a; bestV = v; bestTa=ta; bestTc=tc; bestTd=td;
+      return true;
+    };
+
+    // First try with amax
+    if (tryAccel(amax_)) {
+      found = true;
     } else {
-      Tmin = 2.0f * (vmax_ / amax_) + (D_ - dTri) / vmax_;
-    }
+      // Binary search lower accel until feasible
+      float lo = 1e-6f;
+      float hi = amax_;
+      bool ok = false;
 
-    // Clamp if requested time is too small
-    if (T_ < Tmin) T_ = Tmin;
-
-    // Try solve with a=amax for exact T:
-    // D = v*T - v^2/a  (when cruise time >= 0)
-    // v = (aT - sqrt((aT)^2 - 4aD))/2
-    float a = amax_;
-    float disc = (a * T_) * (a * T_) - 4.0f * a * D_;
-
-    if (disc >= 0.0f) {
-      float v = (a * T_ - sqrtf(disc)) * 0.5f;
-      float tc = T_ - 2.0f * v / a;
-
-      if (tc >= -1e-6f && v <= vmax_ + 1e-6f) {
-        // Trapezoid (maybe tiny tc)
-        v_ = fminf(v, vmax_);
-        a_ = a;
-        ta_ = v_ / a_;
-        tc_ = fmaxf(0.0f, T_ - 2.0f * ta_);
-        td_ = ta_;
-        return;
+      for (int i = 0; i < 40; i++) {
+        float mid = 0.5f*(lo+hi);
+        if (tryAccel(mid)) { ok = true; lo = mid; } // try higher accel
+        else { hi = mid; }
       }
+      found = ok;
     }
 
-    // If v from amax solve exceeds vmax, force v=vmax and solve for a to meet T:
-    // T = D/v + v/a  => a = v / (T - D/v)
-    {
-      float v = vmax_;
-      float denom = (T_ - (D_ / v));
-      if (denom > 1e-6f) {
-        float a = v / denom;
-        if (a <= amax_ + 1e-6f) {
-          v_ = v;
-          a_ = fmaxf(1e-6f, a);
-          ta_ = v_ / a_;
-          tc_ = fmaxf(0.0f, T_ - 2.0f * ta_);
-          td_ = ta_;
-          return;
-        }
-      }
+    if (!found) {
+      // Last-resort fallback: constant-velocity that matches distance/time,
+      // ignoring requested v0/v1 (keeps direction consistent).
+      float vavg = D_ / T_;
+      vavg = fminf(vavg, vmax_);
+      a_ = 0.0f;
+      v0_ = vavg;
+      v1_ = vavg;
+      vPeak_ = vavg;
+      ta_ = 0.0f; tc_ = T_; td_ = 0.0f;
+      sA_ = 0.0f; sB_ = D_;
+      sign_ = sign;
+      return;
     }
 
-    // Otherwise fall back to triangular that matches T exactly (if within limits),
-    // a_req = 4D/T^2, v_req = 2D/T
-    {
-      float a_req = 4.0f * D_ / (T_ * T_);
-      float v_req = 2.0f * D_ / T_;
-      a_ = fminf(a_req, amax_);
-      v_ = fminf(v_req, vmax_);
-      // Recompute consistent times for triangular:
-      ta_ = (v_ / a_);
-      tc_ = 0.0f;
-      td_ = ta_;
-      // T_ becomes 2*ta; if that differs from desired, we accept this safe fallback.
-      T_ = 2.0f * ta_;
-    }
+    // Commit chosen parameters
+    a_ = bestA;
+    vPeak_ = bestV;
+    ta_ = bestTa; tc_ = bestTc; td_ = bestTd;
+
+    // Precompute segment boundary positions in + direction
+    // Accel segment end:
+    sA_ = v0_*ta_ + 0.5f*a_*ta_*ta_;
+    // Cruise segment end:
+    sB_ = sA_ + vPeak_*tc_;
+
+    // Numerical clamp to final distance
+    if (sB_ > D_) sB_ = D_;
+    sign_ = sign;
   }
 
   float duration() const { return T_; }
 
-  // position in steps at time t (0..T)
+  // position (steps) at time t
   float pos(float t) const {
-    t = clampT(t);
+    t = clampT_(t);
     float s = 0.0f;
 
     if (t <= ta_) {
-      // accel: s = 0.5*a*t^2
-      s = 0.5f * a_ * t * t;
+      s = v0_*t + 0.5f*a_*t*t;
     } else if (t <= ta_ + tc_) {
-      // cruise: s = s_acc + v*(t-ta)
-      float s_acc = 0.5f * a_ * ta_ * ta_;
-      s = s_acc + v_ * (t - ta_);
+      float dt = t - ta_;
+      s = sA_ + vPeak_*dt;
     } else {
-      // decel: symmetric
-      float t2 = t - (ta_ + tc_);
-      float s_acc = 0.5f * a_ * ta_ * ta_;
-      float s_cruise = v_ * tc_;
-      // during decel: s = s_acc + s_cruise + v*t2 - 0.5*a*t2^2
-      s = s_acc + s_cruise + v_ * t2 - 0.5f * a_ * t2 * t2;
+      float dt = t - (ta_ + tc_);
+      // decel from vPeak down to v1 with accel = -a
+      s = sB_ + vPeak_*dt - 0.5f*a_*dt*dt;
     }
 
-    // Clamp numeric noise and apply sign
+    // Clamp and apply sign
+    if (s < 0.0f) s = 0.0f;
     if (s > D_) s = D_;
     return sign_ * s;
   }
 
 private:
-  float clampT(float t) const {
+  static float clampAbs_(float x, float lim) {
+    if (x > lim) return lim;
+    if (x < -lim) return -lim;
+    return x;
+  }
+
+  float clampT_(float t) const {
     if (t < 0.0f) return 0.0f;
     if (t > T_) return T_;
     return t;
   }
 
   float sign_ = 1.0f;
-  float D_ = 0.0f;     // abs distance (steps)
+
+  float D_ = 0.0f;   // abs distance
   float T_ = 0.0f;
 
   float vmax_ = 0.0f;
   float amax_ = 0.0f;
 
-  // planned parameters
-  float v_ = 0.0f;
+  float v0_ = 0.0f;     // start vel in + direction
+  float v1_ = 0.0f;     // end vel in + direction
+  float vPeak_ = 0.0f;  // peak vel in + direction
   float a_ = 0.0f;
-  float ta_ = 0.0f;  // accel time
-  float tc_ = 0.0f;  // cruise time
-  float td_ = 0.0f;  // decel time (equals ta)
+
+  float ta_ = 0.0f, tc_ = 0.0f, td_ = 0.0f;
+
+  float sA_ = 0.0f; // position at end accel (in + direction)
+  float sB_ = 0.0f; // position at end cruise (in + direction)
 };

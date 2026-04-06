@@ -1,10 +1,11 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include "Config.h"
 #include "MotionQueue.h"
 #include "StepperDriver.h"
 #include "MotionController.h"
 #include "Button.h"
-#include "GyroBNO055.h"
+#include "GyroMPU6050.h"
 
 
 // ================= SYSTEM OBJECTS =================
@@ -13,7 +14,9 @@ MotionQueue mq;
 StepperDriver stepL(PIN_L_STEP, PIN_L_DIR, PIN_ENABLE);
 StepperDriver stepR(PIN_R_STEP, PIN_R_DIR, PIN_ENABLE);
 
-GyroBNO055 gyro;
+TwoWire WireGyro = TwoWire(0);  // order is (SCL, SDA)
+GyroMPU6050 gyro(WireGyro);
+
 MotionController motion(stepL, stepR, mq, &gyro);
 
 
@@ -23,7 +26,7 @@ static inline MotionCmd StraightCmd(float dist_mm, float t) {
   return {MotionType::Straight, dist_mm, 0, 0, t};
 }
 static inline MotionCmd TurnCmd(float deg, float t) {
-  return {MotionType::Turn, deg, 0, 0, t};
+  return {MotionType::TurnInPlace, deg, 0, 0, t};
 }
 static inline MotionCmd ArcCmd(float dx, float dy, float t) {
   return {MotionType::Arc, 0, dx, dy, t};
@@ -46,18 +49,24 @@ void right90(){
 
 // ================= ROUTINE =================
 static void loadRoutine() {
-  mq.clear();
+ // Start from rest -> accelerate while going straight
 
-  mq.clear();
+ //fwd500();
+ left90();
+ /*
+  motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
-  mq.push(StraightCmd(600.0f, 2.5f));
-  mq.push(TurnCmd(90.0f, 1.2f));
-  mq.push(StraightCmd(300.0f, 1.5f));
+  // Stitch into a left arc without decel: end v of straight = start v of arc
+  motion.planArc(-250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
 
-  // Optional smooth arc segment (forward+left)
-  mq.push(ArcCmd(250.0f, 250.0f, 3.0f));
+  // Stitch to another straight, maybe decel a bit
+  motion.planStraight(500.0f, 3.0f, 250.0f, 100.0f);
 
-  mq.push(TurnCmd(-90.0f, 1.2f));
+  motion.planArc(-250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
+  */
+
+  // End at rest
+  //motion.planStraight(500.0f, 1.0f, 100.0f, 0.0f);
 
 }
 
@@ -77,24 +86,25 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  Serial.println("Init BNO055...");
-  if (!gyro.begin(BNO055_ADDR, I2C_HZ)) {
-    Serial.println("BNO055 not detected. Check wiring/address.");
-    // You can halt here or continue without gyro:
-    // while (1) delay(10);
-  } else {
-    Serial.println("Calibrating heading zero (keep robot still)...");
-    gyro.calibrateHeadingZero(GYRO_BIAS_SAMPLES, GYRO_BIAS_DELAY_MS);
-    Serial.println("Gyro zeroed.");
+  stepL.begin(true);
+  stepR.begin(true);
+
+  Serial.println("Init MPU6050...");
+
+  if (!gyro.begin(MPU6050_ADDR, GYRO_I2C_HZ)) {
+    Serial.println("Failed to find MPU6050 on custom I2C bus.");
+    while (1) delay(10);
   }
 
-  if (PIN_ENABLE != 255) {
-    pinMode(PIN_ENABLE, OUTPUT);
-    digitalWrite(PIN_ENABLE, LOW);
-  }
+  delay(1000);
+  Serial.println("Calibrating gyro bias - keep robot still...");
+  gyro.calibrateBias(GYRO_BIAS_SAMPLES, GYRO_BIAS_DELAY_MS);
+  Serial.print("Gyro bias (deg/s): ");
+  Serial.println(gyro.gyroBiasDegPerS(), 6);
+  Serial.println("Gyro ready.");
 
-  stepL.begin(false);
-  stepR.begin(false);
+
+
 
   stepL.initMicrosteps();
   stepR.initMicrosteps();
@@ -106,9 +116,10 @@ void setup() {
 }
 
 void loop() {
+  gyro.update();
   motion.update();
 
-  Serial.println(gyro.headingDeg());
+  //Serial.println(gyro.headingDeg());
 
   switch (state) {
 
