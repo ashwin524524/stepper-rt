@@ -52,7 +52,11 @@ static void loadRoutine() {
  // Start from rest -> accelerate while going straight
 
  //fwd500();
- left90();
+ //left90();
+
+ motion.planStraight(500.0f, 5.0f, 0.0f, 10.0f);
+ motion.planStraight(100, 2, 10, 10);
+ motion.planStraight(500.0f, 5.0f, 10.0f, 0.0f);
  /*
   motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
@@ -84,13 +88,14 @@ RunState state = RunState::WaitingForStart;
 
 void setup() {
   Serial.begin(115200);
-  delay(200);
+  delay(1200);
 
-  stepL.begin(true);
-  stepR.begin(true);
+
+  stepL.begin(false);
+  stepR.begin(false);
 
   Serial.println("Init MPU6050...");
-
+/*
   if (!gyro.begin(MPU6050_ADDR, GYRO_I2C_HZ)) {
     Serial.println("Failed to find MPU6050 on custom I2C bus.");
     while (1) delay(10);
@@ -103,7 +108,7 @@ void setup() {
   Serial.println(gyro.gyroBiasDegPerS(), 6);
   Serial.println("Gyro ready.");
 
-
+*/
 
 
   stepL.initMicrosteps();

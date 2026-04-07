@@ -54,8 +54,8 @@ public:
       if (corr > TURN_CORR_MAX_STEPS) corr = TURN_CORR_MAX_STEPS;
       if (corr < -TURN_CORR_MAX_STEPS) corr = -TURN_CORR_MAX_STEPS;
 
-      lCmd -= corr;
-      rCmd += corr;
+      //lCmd -= corr;
+      //rCmd += corr;
     }
     
     
