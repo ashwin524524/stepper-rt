@@ -143,6 +143,23 @@ public:
     return sign_ * s;
   }
 
+    // velocity (steps/s) at time t
+  float vel(float t) const {
+    t = clampT_(t);
+
+    float v = 0.0f;
+    if (t <= ta_) {
+      v = v0_ + a_ * t;
+    } else if (t <= ta_ + tc_) {
+      v = vPeak_;
+    } else {
+      float dt = t - (ta_ + tc_);
+      v = vPeak_ - a_ * dt;
+    }
+
+    return sign_ * v;
+  }
+
 private:
   static float clampAbs_(float x, float lim) {
     if (x > lim) return lim;

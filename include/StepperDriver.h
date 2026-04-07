@@ -19,6 +19,7 @@ public:
       disable();   // start disabled
     }
   }
+  
 
   inline void enable() {
     if (enPin_ != 255) {

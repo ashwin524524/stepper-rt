@@ -6,6 +6,7 @@
 #include "TrapezoidProfile.h"
 #include "GyroMPU6050.h"
 #include "TurnPlanner.h"
+#include "StepperTimer.h"
 
 // Runs queued motion commands by planning left/right step profiles.
 // Emits steps by sampling profile position and stepping until actual step index matches.

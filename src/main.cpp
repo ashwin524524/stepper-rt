@@ -33,7 +33,7 @@ static inline MotionCmd ArcCmd(float dx, float dy, float t) {
 }
 
 void fwd500(){
-  mq.push(StraightCmd(500.0f, 1.8f));
+  mq.push(StraightCmd(500.0f, 1.1f));
 }
 
 void back500() {
@@ -51,12 +51,15 @@ void right90(){
 static void loadRoutine() {
  // Start from rest -> accelerate while going straight
 
- //fwd500();
+ fwd500();
  //left90();
+ //fwd500();
+ 
 
- motion.planStraight(500.0f, 5.0f, 0.0f, 10.0f);
- motion.planStraight(100, 2, 10, 10);
- motion.planStraight(500.0f, 5.0f, 10.0f, 0.0f);
+  //motion.planStraight(500.0f, 7.0f, 0.0f,   0.0f);  // start from rest, speed up
+  //motion.planStraight(400.0f, 1.5f, 300.0f, 120.0f);  // slow down, but do not stop
+  //motion.planStraight(700.0f, 2.0f, 120.0f, 120.0f);  // speed back up
+  //motion.planStraight(300.0f, 1.2f, 120.0f, 0.0f);    // finally stop
  /*
   motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
@@ -121,7 +124,7 @@ void setup() {
 }
 
 void loop() {
-  gyro.update();
+  //gyro.update();
   motion.update();
 
   //Serial.println(gyro.headingDeg());

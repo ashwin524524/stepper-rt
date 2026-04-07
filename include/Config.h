@@ -23,11 +23,11 @@ static constexpr int32_t STEPS_PER_REV   = 200*4;
 
 // =================== LIMITS (YOU WILL PROVIDE) ===================
 // Units are in "steps" domain internally, so we convert mm->steps.
-static constexpr float MAX_VEL_MM_S      = 600.0f;   // <-- set this
-static constexpr float MAX_ACCEL_MM_S2   = 300.0f;  // <-- set this
+static constexpr float MAX_VEL_MM_S      = 3000.0f;   // <-- set this
+static constexpr float MAX_ACCEL_MM_S2   = 0.01f;  // <-- set this
 
 // =================== QUEUE ===================
-static constexpr size_t MOTION_QUEUE_CAP = 64;
+static constexpr size_t MOTION_QUEUE_CAP = 256;
 
 // =================== START BUTTON ===================
 static constexpr uint8_t PIN_START_BUTTON = 0;   // <-- you choose
