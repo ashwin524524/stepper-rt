@@ -6,7 +6,7 @@
 #include "TrapezoidProfile.h"
 #include "GyroMPU6050.h"
 #include "TurnPlanner.h"
-#include "StepperTimer.h"
+
 
 // Runs queued motion commands by planning left/right step profiles.
 // Emits steps by sampling profile position and stepping until actual step index matches.
@@ -60,7 +60,7 @@ public:
     }
     
     
-
+    //Serial.println(t);
     runAxisTo_(L_, lCmd, lSentSteps_);
     runAxisTo_(R_, rCmd, rSentSteps_);
 
@@ -84,6 +84,8 @@ public:
 
   // Enqueue a straight with boundary velocities (mm/s)
   bool planStraight(float dist_mm, float time_s, float v0_mm_s, float v1_mm_s) {
+
+    Serial.println("Started new straight");
     MotionCmd c{};
     c.type = MotionType::Straight;
     c.value = dist_mm;

@@ -51,15 +51,19 @@ void right90(){
 static void loadRoutine() {
  // Start from rest -> accelerate while going straight
 
- fwd500();
+ //fwd500();
  //left90();
  //fwd500();
  
 
-  //motion.planStraight(500.0f, 7.0f, 0.0f,   0.0f);  // start from rest, speed up
-  //motion.planStraight(400.0f, 1.5f, 300.0f, 120.0f);  // slow down, but do not stop
-  //motion.planStraight(700.0f, 2.0f, 120.0f, 120.0f);  // speed back up
-  //motion.planStraight(300.0f, 1.2f, 120.0f, 0.0f);    // finally stop
+  motion.planStraight(700.0f, 3.0f, 0.0f,   50.0f);  // start from rest, speed up
+  motion.planStraight(100, 2, 50, 50);
+  motion.planStraight(500, 2.5, 50, 0);
+
+  //motion.planStraight(400.0f, 6.5f, 300.0f, 120.0f);  // slow down, but do not stop
+  //motion.planStraight(100.0f, 6.0f, 120.0f, 120.0f);  
+  //motion.planStraight(400.0f, 6.5f, 120.0f, 300.0f);  // slow down, but do not stop
+  //motion.planStraight(500.0f, 6.0f, 300.0f, 0.0f);    // finally stop
  /*
   motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
