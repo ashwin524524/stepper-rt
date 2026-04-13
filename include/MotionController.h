@@ -6,6 +6,7 @@
 #include "TrapezoidProfile.h"
 #include "GyroMPU6050.h"
 #include "TurnPlanner.h"
+#include "ProgressProfile.h"
 
 
 // Runs queued motion commands by planning left/right step profiles.
@@ -33,8 +34,20 @@ public:
     const float t = (nowUs - segStartUs_) * 1e-6f;
 
     // Desired positions from profile (in steps, can be negative)
-    const float lPos = lProf_.pos(t);
-    const float rPos = rProf_.pos(t);
+    float lPos = lProf_.pos(t);
+    float rPos = rProf_.pos(t);
+
+
+    if (segIsArc_) {
+      float s_c = arcCenterProf_.pos(t);
+
+      float u = (arcCenterTotalSteps_ > 1e-6f)
+                  ? s_c / arcCenterTotalSteps_
+                  : 0.0f;
+
+      lPos = arcLeftTotalSteps_ * u;
+      rPos = arcRightTotalSteps_ * u;
+    }
 
     float lCmd = lPos;
     float rCmd = rPos;
@@ -58,6 +71,8 @@ public:
       //lCmd -= corr;
       //rCmd += corr;
     }
+
+    
     
     
     //Serial.println(t);
@@ -82,14 +97,12 @@ public:
     }
   }
 
-  // Enqueue a straight with boundary velocities (mm/s)
   bool planStraight(float dist_mm, float time_s, float v0_mm_s, float v1_mm_s) {
 
     Serial.println("Started new straight");
     MotionCmd c{};
     c.type = MotionType::Straight;
     c.value = dist_mm;
-    c.dx_mm = 0; c.dy_mm = 0;
     c.time_s = time_s;
     c.v0_mm_s = v0_mm_s;
     c.v1_mm_s = v1_mm_s;
@@ -97,15 +110,18 @@ public:
   }
 
   // Enqueue an arc (dx,dy) with boundary CENTER velocities (mm/s)
-  bool planArc(float dx_mm, float dy_mm, float time_s, float v0_center_mm_s, float v1_center_mm_s) {
+  bool planArc(float radius_mm, float angle_deg,
+              float time_s,
+              float v0_mm_s = 0.0f,
+              float v1_mm_s = 0.0f)
+  {
     MotionCmd c{};
-    c.type = MotionType::Arc;
-    c.value = 0;
-    c.dx_mm = dx_mm;
-    c.dy_mm = dy_mm;
+    c.type = MotionType::ArcRadiusAngle;
+    c.radius_mm = radius_mm;
+    c.angle_deg = angle_deg;
     c.time_s = time_s;
-    c.v0_mm_s = v0_center_mm_s;
-    c.v1_mm_s = v1_center_mm_s;
+    c.v0_mm_s = v0_mm_s;
+    c.v1_mm_s = v1_mm_s;
     return q_.push(c);
   }
 
@@ -146,6 +162,7 @@ void disableMotors_() {
       l_v0 = cmd.v0_mm_s; r_v0 = cmd.v0_mm_s;
       l_v1 = cmd.v1_mm_s; r_v1 = cmd.v1_mm_s;
       segIsTurn_ = false;
+      segIsArc_ = false;
 
     } else if (cmd.type == MotionType::TurnInPlace) {
     const float angRad = degToRad(cmd.value);
@@ -164,18 +181,36 @@ void disableMotors_() {
 
       turnPlanner_.plan(cmd.value, cmd.time_s);
 
-    } else { // Arc
-      float kL=1.0f, kR=1.0f; // wheel speed scaling vs center speed
-      if (!arcToWheelDistsAndScales_(cmd.dx_mm, cmd.dy_mm, l_mm, r_mm, kL, kR)) {
-        // fallback: straight dx
-        l_mm = cmd.dx_mm; r_mm = cmd.dx_mm;
-        kL = kR = 1.0f;
-      }
-      // Boundary center velocities scaled to wheels
-      l_v0 = kL * cmd.v0_mm_s;  r_v0 = kR * cmd.v0_mm_s;
-      l_v1 = kL * cmd.v1_mm_s;  r_v1 = kR * cmd.v1_mm_s;
-      segIsTurn_ = false;
+    }  // Arc
+    else if (cmd.type == MotionType::ArcRadiusAngle) {
+      segIsArc_ = true;
+
+      float l_mm, r_mm;
+      arcRadiusAngleToWheelDists_(cmd.radius_mm, cmd.angle_deg, l_mm, r_mm);
+
+      arcLeftTotalSteps_  = mmToSteps(l_mm);
+      arcRightTotalSteps_ = mmToSteps(r_mm);
+
+      // center arc length
+      float theta = degToRad(cmd.angle_deg);
+      float center_mm = fabsf(cmd.radius_mm) * theta;
+      arcCenterTotalSteps_ = mmToSteps(center_mm);
+
+      // convert velocities to steps/s
+      float v0_steps = mmToSteps(cmd.v0_mm_s);
+      float v1_steps = mmToSteps(cmd.v1_mm_s);
+
+      arcCenterProf_.plan(
+          arcCenterTotalSteps_,
+          cmd.time_s,
+          v0_steps,
+          v1_steps,
+          maxVelSteps_,
+          maxAccelSteps_);
+
+      segDurationS_ = arcCenterProf_.duration();
     }
+    
 
     // Convert to steps domain
   const float l_steps = mmToSteps(l_mm);
@@ -197,6 +232,18 @@ void disableMotors_() {
 
   active_ = true;
   return true;
+}
+
+static void arcRadiusAngleToWheelDists_(float radius_mm, float angle_deg,
+                                        float& l_mm, float& r_mm) {
+  const float theta = degToRad(angle_deg);
+  const float halfW = WHEELBASE_MM * 0.5f;
+
+  // radius_mm is magnitude, angle sign determines left/right
+  const float R = fabsf(radius_mm);
+
+  l_mm = (R - halfW) * theta;
+  r_mm = (R + halfW) * theta;
 }
 
 static bool arcToWheelDists_(float dx, float dy, float& l_mm, float& r_mm) {
@@ -299,5 +346,17 @@ static bool arcToWheelDists_(float dx, float dy, float& l_mm, float& r_mm) {
   TurnPlanner turnPlanner_;
   bool segIsTurn_ = false;
   float turnTargetHeadingDeg_ = 0.0f;
+
+    // Existing wheel profiles for straight / in-place turn
+  //TrapezoidProfile lProf_, rProf_;
+
+  // Shared progress profile for arcs
+  float arcCenterTotalSteps_ = 0.0f;
+  float arcLeftTotalSteps_ = 0.0f;
+  float arcRightTotalSteps_ = 0.0f;
+
+  bool segIsArc_ = false;
+
+  TrapezoidProfile arcCenterProf_;
 
 };

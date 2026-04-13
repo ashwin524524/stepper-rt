@@ -2,19 +2,21 @@
 #include <Arduino.h>
 #include "Config.h"
 
-enum class MotionType : uint8_t { Straight, TurnInPlace, Arc };
+enum class MotionType : uint8_t { Straight, TurnInPlace, ArcRadiusAngle };
 
 struct MotionCmd {
   MotionType type;
 
+  float value = 0.0f;
+
+  // ArcRadiusAngle only
+  float radius_mm = 0.0f;
+  float angle_deg = 0.0f;
   // Geometry:
-  float value;   // Straight: distance_mm, TurnInPlace: angle_deg, Arc: unused
-  float dx_mm;   // Arc only
-  float dy_mm;   // Arc only
+  //float value;   // Straight: distance_mm, TurnInPlace: angle_deg, Arc: unused
 
   // Timing:
   float time_s;
-
   // Boundary velocities (mm/s)
   // Straight: center velocity = wheel velocity
   // Arc: center velocity along arc

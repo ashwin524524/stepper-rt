@@ -22,16 +22,31 @@ MotionController motion(stepL, stepR, mq, &gyro);
 
 Button startButton(PIN_START_BUTTON, START_ACTIVE_LOW);
 
+
 static inline MotionCmd StraightCmd(float dist_mm, float t) {
-  return {MotionType::Straight, dist_mm, 0, 0, t};
-}
-static inline MotionCmd TurnCmd(float deg, float t) {
-  return {MotionType::TurnInPlace, deg, 0, 0, t};
-}
-static inline MotionCmd ArcCmd(float dx, float dy, float t) {
-  return {MotionType::Arc, 0, dx, dy, t};
+  MotionCmd c{};
+  c.type = MotionType::Straight;
+  c.value = dist_mm;
+  c.time_s = t;
+  return c;
 }
 
+static inline MotionCmd TurnCmd(float angle_deg, float t) {
+  MotionCmd c{};
+  c.type = MotionType::TurnInPlace;
+  c.value = angle_deg;
+  c.time_s = t;
+  return c;
+}
+
+static inline MotionCmd ArcCmd(float radius_mm, float angle_deg, float t) {
+  MotionCmd c{};
+  c.type = MotionType::ArcRadiusAngle;
+  c.radius_mm = radius_mm;
+  c.angle_deg = angle_deg;
+  c.time_s = t;
+  return c;
+}
 void fwd500(){
   mq.push(StraightCmd(500.0f, 1.1f));
 }
@@ -56,28 +71,28 @@ static void loadRoutine() {
  //fwd500();
  
 
-  motion.planStraight(700.0f, 3.0f, 0.0f,   50.0f);  // start from rest, speed up
-  motion.planStraight(100, 2, 50, 50);
-  motion.planStraight(500, 2.5, 50, 0);
+  //motion.planStraight(700.0f, 3.0f, 0.0f,   50.0f);  // start from rest, speed up
+  //motion.planStraight(100, 2, 50, 50);
+  //motion.planStraight(500, 2.5, 50, 0);
 
   //motion.planStraight(400.0f, 6.5f, 300.0f, 120.0f);  // slow down, but do not stop
   //motion.planStraight(100.0f, 6.0f, 120.0f, 120.0f);  
   //motion.planStraight(400.0f, 6.5f, 120.0f, 300.0f);  // slow down, but do not stop
   //motion.planStraight(500.0f, 6.0f, 300.0f, 0.0f);    // finally stop
- /*
+ 
   motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
   // Stitch into a left arc without decel: end v of straight = start v of arc
-  motion.planArc(-250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
+  motion.planArc(250.0f, 90.0f, 3.0f, 250.0f, 250.0f);
 
   // Stitch to another straight, maybe decel a bit
-  motion.planStraight(500.0f, 3.0f, 250.0f, 100.0f);
+  motion.planStraight(500.0f, 3.0f, 250.0f, 0.0f);
 
-  motion.planArc(-250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
-  */
+  //motion.planArc(250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
+  
 
   // End at rest
-  //motion.planStraight(500.0f, 1.0f, 100.0f, 0.0f);
+  //motion.planStraight(500.0f, 2.0f, 100.0f, 0.0f);
 
 }
 
