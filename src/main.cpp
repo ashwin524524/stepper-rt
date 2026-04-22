@@ -79,20 +79,16 @@ static void loadRoutine() {
   //motion.planStraight(100.0f, 6.0f, 120.0f, 120.0f);  
   //motion.planStraight(400.0f, 6.5f, 120.0f, 300.0f);  // slow down, but do not stop
   //motion.planStraight(500.0f, 6.0f, 300.0f, 0.0f);    // finally stop
- 
+
   motion.planStraight(500.0f, 3.0f, 0.0f, 250.0f);
 
   // Stitch into a left arc without decel: end v of straight = start v of arc
-  motion.planArc(250.0f, 90.0f, 3.0f, 250.0f, 250.0f);
+  motion.planArc(250.0f, 90.0f, 2.0f, 250.0f, 200.0f);
 
   // Stitch to another straight, maybe decel a bit
-  motion.planStraight(500.0f, 3.0f, 250.0f, 0.0f);
+  motion.planStraight(500.0f, 3.0f, 200.0f, 0.0f);
 
-  //motion.planArc(250.0f, 250.0f, 3.0f, 250.0f, 250.0f);
-  
 
-  // End at rest
-  //motion.planStraight(500.0f, 2.0f, 100.0f, 0.0f);
 
 }
 
